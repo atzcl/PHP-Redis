@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | Author: zhichengliang <atzcl0310@gmail.com>  Blog：https://www.zcloop.com
 // +----------------------------------------------------------------------
-namespace Atzcl\Redis;
+namespace Atzcl;
 
 use Predis\Client;
 
