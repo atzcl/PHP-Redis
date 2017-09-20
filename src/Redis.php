@@ -4,6 +4,7 @@
 // +----------------------------------------------------------------------
 namespace Atzcl;
 
+use Closure;
 use Predis\Client;
 
 /**
@@ -66,9 +67,7 @@ class Redis
         $value = is_array($value) ? json_encode($value) : $value;
 
         if ($time) {
-
             if ($unit) {
-
                 // 设置了过期时间并使用了快捷时间单位
                 // 判断时间单位
                 switch (strtolower($unit)) {
@@ -96,9 +95,7 @@ class Redis
 
             // 秒为单位的到期值
             static::_setex($key, $value, (int) $time);
-
         } else {
-
             // 不设置过期时间
             static::$redis->set($key, $value);
         }
@@ -156,6 +153,12 @@ class Redis
         return static::$redis->exists($key);
     }
 
+    /**
+     * add 操作，不会覆盖已有值
+     * @param string $key 缓存标识
+     * @param mixed  $value 缓存的数据
+     * @throws \Exception
+     * */
     public static function setnx($key, $value)
     {
         if (empty($key) || empty($value)) {
@@ -188,5 +191,28 @@ class Redis
     private static function _psetex($key, $value, $time)
     {
         static::$redis->psetex($key, $time, $value);
+    }
+
+    /**
+     * @param string $key 缓存标识
+     * @param Closure $closure 匿名函数注入
+     * @param int $time 缓存过期时间
+     * @param string $unit 指定时间单位 （h/m/s/ms）
+     * @return mixed
+     */
+    public static function remember($key, Closure $closure, $time = null, $unit = null)
+    {
+        // 先获取缓存
+        $value = static::get($key);
+
+        // 如果存在，那么直接返回
+        if (!is_null($value)) {
+            return $value;
+        }
+
+        // 不存在，那么就写入后返回
+        static::set($key, $value = $closure(), $time, $unit);
+
+        return $value;
     }
 }
