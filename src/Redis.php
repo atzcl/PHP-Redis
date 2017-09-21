@@ -87,18 +87,27 @@ class Redis
                 }
 
                 if (strtolower($unit) === 'ms') {
-
                     // 毫秒秒为单位的到期值
-                    static::_psetex($key, $value, (int) $time);
+                    static::pseTex($key, $value, (int) $time);
                 }
             }
 
             // 秒为单位的到期值
-            static::_setex($key, $value, (int) $time);
+            static::seTex($key, $value, (int) $time);
         } else {
             // 不设置过期时间
             static::$redis->set($key, $value);
         }
+    }
+
+    /**
+     * 判断缓存是否存在
+     * @param string $key 缓存标识
+     * @return bool
+     */
+    public static function has($key)
+    {
+        return !is_null(static::get($key));
     }
 
     /**
@@ -115,7 +124,6 @@ class Redis
 
         $result = static::$redis->get($key);
         if ($result) {
-
             $decodeJson = json_decode($result, true);
             return  $decodeJson !== null ? $decodeJson : $result;
         }
@@ -165,7 +173,7 @@ class Redis
             throw new \Exception('参数不正确');
         }
 
-        return static::$redis->setnx($key,$value);
+        return static::$redis->setnx($key, $value);
     }
 
     /**
@@ -173,9 +181,8 @@ class Redis
      * @param string $key 缓存标识
      * @param mixed  $value 缓存的数据
      * @param int    $time 缓存过期时间
-     * @throws \Exception
      * */
-    private static function _setex($key, $value, $time)
+    private static function seTex($key, $value, $time)
     {
         // https://github.com/nrk/predis/issues/203
         static::$redis->setex($key, $time, $value);
@@ -186,9 +193,8 @@ class Redis
      * @param string $key 缓存标识
      * @param mixed  $value 缓存的数据
      * @param int    $time 缓存过期时间
-     * @throws \Exception
      * */
-    private static function _psetex($key, $value, $time)
+    private static function pseTex($key, $value, $time)
     {
         static::$redis->psetex($key, $time, $value);
     }
