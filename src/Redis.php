@@ -5,6 +5,7 @@
 namespace Atzcl;
 
 use Closure;
+use Exception;
 use Predis\Client;
 
 /**
@@ -21,7 +22,7 @@ class Redis
         // 'timeout'    => 3600,
         // 'expire'     => 0,
         // 'persistent' => false,
-        // 'prefix'     => '',
+         'prefix'     => 'atzcl',
     ];
 
     protected static $redis;
@@ -31,7 +32,7 @@ class Redis
      * @param array $config 缓存参数
      * @access public
      */
-    public function __construct($config = [])
+    public function __construct(array $config = [])
     {
         if (!empty($config)) {
             // 合并重复项
@@ -57,14 +58,11 @@ class Redis
      * @param string $unit 指定时间单位 （h/m/s/ms）
      * @throws \Exception
      * */
-    public static function set($key, $value, $time = null, $unit = null)
+    public static function set(string $key, $value, int $time = null, string $unit = null)
     {
         if (empty($key) || empty($value)) {
-            throw new \Exception('请传入正确参数');
+            throw new Exception('请传入正确参数');
         }
-
-        // 如果传入的是数组，那么就编码下
-        $value = is_array($value) ? json_encode($value) : $value;
 
         if ($time) {
             if ($unit) {
@@ -82,7 +80,7 @@ class Redis
                     case 'ms':
                         break;
                     default:
-                        throw new \Exception('时间单位只能是：h/m/s/ms');
+                        throw new Exception('时间单位只能是：h/m/s/ms');
                         break;
                 }
 
@@ -105,7 +103,7 @@ class Redis
      * @param string $key 缓存标识
      * @return bool
      */
-    public static function has($key)
+    public static function has(string $key)
     {
         return !is_null(static::get($key));
     }
@@ -114,21 +112,21 @@ class Redis
      * 获取缓存
      * @param string $key 缓存标识
      * @return mixed
-     * @throws \Exception
+     * @throws Exception
      * */
-    public static function get($key)
+    public static function get(string $key)
     {
-        if (empty($key)) {
-            throw new \Exception('请传入需要获取的缓存名称');
-        }
+        try {
+            if (empty($key)) {
+                throw new Exception('请传入需要获取的缓存名称');
+            }
 
-        $result = static::$redis->get($key);
-        if ($result) {
+            $result = static::$redis->get(static::getPrefixKey($key));
             $decodeJson = json_decode($result, true);
-            return  $decodeJson !== null ? $decodeJson : $result;
+            return is_null($decodeJson) ? $result : $decodeJson;
+        } catch (Exception $e) {
+            throw new Exception('get 方法只能获取 string 类型缓存');
         }
-
-        return null;
     }
 
     /**
@@ -137,13 +135,13 @@ class Redis
      * @throws \Exception
      * @return int 返回删除个数
      * */
-    public static function del($key)
+    public static function del(string $key)
     {
         if (empty($key)) {
-            throw new \Exception('请传入需要删除的缓存名称');
+            throw new Exception('请传入需要删除的缓存名称');
         }
 
-        return static::$redis->del($key);
+        return static::$redis->del(static::getPrefixKey($key));
     }
 
     /**
@@ -152,13 +150,13 @@ class Redis
      * @throws \Exception
      * @return int 返回存在个数
      * */
-    public static function exists($key)
+    public static function exists(string $key)
     {
         if (empty($key)) {
-            throw new \Exception('请传入判断的缓存名称');
+            throw new Exception('请传入判断的缓存名称');
         }
 
-        return static::$redis->exists($key);
+        return static::$redis->exists(static::getPrefixKey($key));
     }
 
     /**
@@ -167,13 +165,13 @@ class Redis
      * @param mixed  $value 缓存的数据
      * @throws \Exception
      * */
-    public static function setnx($key, $value)
+    public static function setnx(string $key, $value)
     {
         if (empty($key) || empty($value)) {
-            throw new \Exception('参数不正确');
+            throw new Exception('参数不正确');
         }
 
-        return static::$redis->setnx($key, $value);
+        return static::$redis->setnx(static::getPrefixKey($key), static::isEncode($value));
     }
 
     /**
@@ -182,10 +180,10 @@ class Redis
      * @param mixed  $value 缓存的数据
      * @param int    $time 缓存过期时间
      * */
-    private static function seTex($key, $value, $time)
+    private static function seTex(string $key, $value, int $time)
     {
         // https://github.com/nrk/predis/issues/203
-        static::$redis->setex($key, $time, $value);
+        static::$redis->setex(static::getPrefixKey($key), $time, static::isEncode($value));
     }
 
     /**
@@ -194,9 +192,9 @@ class Redis
      * @param mixed  $value 缓存的数据
      * @param int    $time 缓存过期时间
      * */
-    private static function pseTex($key, $value, $time)
+    private static function pseTex(string $key, $value, int $time)
     {
-        static::$redis->psetex($key, $time, $value);
+        static::$redis->psetex(static::getPrefixKey($key), $time, static::isEncode($value));
     }
 
     /**
@@ -206,7 +204,7 @@ class Redis
      * @param string $unit 指定时间单位 （h/m/s/ms）
      * @return mixed
      */
-    public static function remember($key, Closure $closure, $time = null, $unit = null)
+    public static function remember(string $key, Closure $closure, int $time = null, string $unit = null)
     {
         // 先获取缓存
         $value = static::get($key);
@@ -217,8 +215,127 @@ class Redis
         }
 
         // 不存在，那么就写入后返回
-        static::set($key, $value = $closure(), $time, $unit);
+        static::set($key, static::isEncode($value = $closure()), $time, $unit);
 
         return $value;
+    }
+
+    /**
+     * 在列表右端插入数据(插入缓存列表尾部), 当缓存不存在的时候，一个空缓存会被创建并执行 rpush 操作
+     * @param string $key 缓存标识
+     * @param mixed $value 缓存值
+     * @return int 缓存的列表长度
+     */
+    public static function pushListAfter(string $key, $value)
+    {
+        return static::$redis->rpush(static::getPrefixKey($key), static::isEncode($value));
+    }
+
+    /**
+     * 在列表左端插入数据 (插入到缓存列表头部)
+     * @param string $key 缓存标识
+     * @param mixed $value 缓存值
+     * @return int 缓存的列表长度
+     */
+    public static function pushListTop(string $key, $value)
+    {
+        return static::$redis->lpush(static::getPrefixKey($key), static::isEncode($value));
+    }
+
+    /**
+     * rpushx只对已存在的队列做添加, 当缓存不存在时，什么也不做
+     * @param string $key 缓存标识
+     * @param mixed $value 缓存值
+     * @return int 缓存的列表长度
+     */
+    public static function rPushX(string $key, $value)
+    {
+        return static::$redis->rpushx(static::getPrefixKey($key), static::isEncode($value));
+    }
+
+    /**
+     * 查看缓存列表长度
+     * @param string $key 缓存标识
+     * @return int 缓存列表长度
+     */
+    public static function getListLen(string $key)
+    {
+        return static::$redis->llen(static::getPrefixKey($key));
+    }
+
+    /**
+     * 返回缓存的区间值
+     * @param string $key 缓存标识
+     * @param int $start 起始索引值
+     * @param int $end 终止索引值
+     * @return mixed
+     */
+    public static function getListRange(string $key, int $start, int $end)
+    {
+        return static::$redis->lrange(static::getPrefixKey($key), $start, $end);
+    }
+
+    /**
+     * 获取缓存列表中指定顺序位置的元素
+     * @param string $key
+     * @param int $index
+     * @return mixed
+     */
+    public static function getListIndex(string  $key, int $index)
+    {
+        return static::$redis->lindex(static::getPrefixKey($key), $index);
+    }
+
+    /**
+     * 修改缓存列表中指定顺序位置的元素值
+     * @param string $key
+     * @param int $index
+     * @param $value
+     * @return mixed
+     */
+    public static function setListValue(string $key, int $index, $value)
+    {
+        return static::$redis->lset(static::getPrefixKey($key), $index, static::isEncode($value));
+    }
+
+    /**
+     * 返回并移除缓存列表的第一个元素
+     * @param string $key
+     * @return mixed
+     */
+    public static function rmListTop(string $key)
+    {
+        return static::$redis->lpop(static::getPrefixKey($key));
+    }
+
+    /**
+     * 返回并移除缓存列表的最后一个元素
+     * @param string $key
+     * @return mixed
+     */
+    public static function rmListAfter(string $key)
+    {
+        return static::$redis->rpop(static::getPrefixKey($key));
+    }
+
+    /**
+     * 给缓存标识添加 prefix 前缀
+     * @param string $key 缓存标识
+     * @return string
+     */
+    protected static function getPrefixKey(string $key)
+    {
+        return static::$config['prefix'] . '_' . $key;
+    }
+
+    /**
+     * 简单判断是否需要 json_encode
+     * @param $value
+     * @return mixed
+     */
+    protected static function isEncode($value)
+    {
+        // 如果传入的是数组，那么就编码下
+        return is_array($value) || is_object($value)? json_encode($value) : $value;
     }
 }
